@@ -363,5 +363,6 @@ MigrationBackup/
 FodyWeavers.xsd
 
 # appsettings.json and its connection strings etc.
-appsettings.json
-appsettings.Development.json
+AspNetCoreWebApp/appsettings.json
+AspNetCoreWebApp/appsettings.Development.json
+
