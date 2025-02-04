@@ -1,66 +1,6 @@
 ﻿
-///////////////////////////////////////////////// ACTUAL LOGIC ///////////////////////////////////////////////////////
-
-//using System;
-//using System.IO;
-//using System.Net.Http;
-//using System.Threading.Tasks;
-//
-//namespace AspNetCoreWebApp.Services
-//{
-//    public class BookDownloadService
-//    {
-//        private readonly HttpClient _httpClient;
-//        private readonly string _destinationFolder = @"C:\temp_\yeet\"; // Folder to save downloaded files
-//        private readonly string _baseUrl = "http://www.lonnrot.net/kirjat/"; // Base URL where files are hosted
-//
-//        public BookDownloadService(HttpClient httpClient)
-//        {
-//            _httpClient = httpClient;
-//        }
-//
-//        public async Task DownloadBooksAsync(int startNumber, int endNumber)
-//        {
-//            if (!Directory.Exists(_destinationFolder))
-//            {
-//                Directory.CreateDirectory(_destinationFolder);
-//            }
-//
-//            long startTime = DateTime.Now.Ticks;
-//
-//            for (int curNumber = startNumber; curNumber <= endNumber; curNumber++)
-//            {
-//                string fileName = $"{curNumber:D4}.zip"; // Format file as "0001.zip"
-//                string fileUrl = $"{_baseUrl}{fileName}";
-//                string destinationPath = Path.Combine(_destinationFolder, fileName);
-//
-//                try
-//                {
-//                    Console.WriteLine($"Downloading {fileName}...");
-//                    byte[] fileBytes = await _httpClient.GetByteArrayAsync(fileUrl);
-//
-//                    // Save the file
-//                    await File.WriteAllBytesAsync(destinationPath, fileBytes);
-//                    Console.WriteLine($"{fileName} downloaded successfully!");
-//                }
-//                catch (Exception ex)
-//                {
-//                    Console.WriteLine($"Failed to download {fileName}: {ex.Message}");
-//                    break; // Stop if there's an error
-//                }
-//            }
-//
-//            long elapsedTime = (DateTime.Now.Ticks - startTime) / 10000; // Convert to milliseconds
-//            Console.WriteLine($"Total time: {elapsedTime} ms");
-//        }
-//    }
-//}
-/////////////////////////////////////////////////// ACTUAL LOGIC ///////////////////////////////////////////////////////
-
-
-
-////// TESTING LOGIC ////////
-
+using AspNetCoreWebApp.Models;
+using Newtonsoft.Json;
 using System;
 using System.IO;
 using System.IO.Compression;
@@ -73,9 +13,11 @@ namespace AspNetCoreWebApp.Services
     {
         private readonly string _localFolder; // Local folder to save downloaded files
         private readonly string _sourcePath = @"C:\temp_\yeet - Copy\"; // Source folder for testing
-        private readonly string _uploadPath = @"C:\temp_\yeet - Renamed\";       // New folder for renamed files
-        int startNumber = 1;   // Start of the range
-        int curNumber;  // Current book number
+        //private readonly string _uploadPath = @"C:\temp_\yeet - Renamed\";       // New folder for renamed files, not needed with blobstorage configured
+
+        int startNumber = 1;   // Start of the range, not sure if needed 
+        int curNumber;  // Current book number, not sure if needed 
+
         private readonly HttpClient _httpClient;
         private readonly BlobStorageService _blobStorageService;
         private readonly ILogger<BookDownloadService> _logger;
@@ -88,7 +30,7 @@ namespace AspNetCoreWebApp.Services
             _logger = logger;
             _pythonApiService = pythonApiService;
 
-            _localFolder = Path.Combine(Directory.GetCurrentDirectory(), "Temp");
+            _localFolder = Path.Combine(Directory.GetCurrentDirectory(), "Temp"); // Finding if there is a folder for downloading temporary files, such as our books
             // Ensure the Temp folder exists, if not, create it
             if (!Directory.Exists(_localFolder))
             {
@@ -96,56 +38,91 @@ namespace AspNetCoreWebApp.Services
                 _logger.LogInformation($"Created Temp folder at: {_localFolder}");
             }
         }
+        private async Task<byte[]> DownloadFileFromServerAsync(string fileName)
+        {
+            string fileUrl = $"http://192.168.1.122:8080/{fileName}"; // Change to your actual host IP
+            _logger.LogInformation($"Downloading from {fileUrl}");
+
+            using (var response = await _httpClient.GetAsync(fileUrl))
+            {
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError($"Failed to download {fileName}: {response.StatusCode}");
+                    return null;
+                }
+                return await response.Content.ReadAsByteArrayAsync();
+            }
+        }
 
         public async Task DownloadBooksAsync(int startBookNumber, int maxBooks, CancellationToken cancellationToken)
         {
+            var booksData = new List<DataModel>();
+
             for (int bookNumber = startBookNumber; bookNumber <= maxBooks; bookNumber++)
             {
                 // Check for cancellation
                 cancellationToken.ThrowIfCancellationRequested();
 
                 string originalFileName = $"{bookNumber:D4}.zip"; // Format the file name as "0001.zip", "0002.zip", etc.
-                string sourceFilePath = Path.Combine(_sourcePath, originalFileName); // Local path to the file
+                //string sourceFilePath = Path.Combine(_sourcePath, originalFileName); // Local path to the file
                 string destinationPath = Path.Combine(_localFolder, originalFileName);
 
                 try
                 {
                     // Check if the file exists in the local folder
-                    if (!File.Exists(sourceFilePath))
+                    /*if (!File.Exists(sourceFilePath))
                     {
                         _logger.LogInformation($"File {originalFileName} not found. Stopping download.");
                         _logger.LogWarning($"No more files found. Expected {originalFileName} in {_sourcePath}, but it does not exist.");
                         break;
                     }
+                    */
 
                     _logger.LogInformation($"Downloading {originalFileName}...");
 
-                    // Read the file from the local folder (no network request needed)
-                    byte[] fileBytes = await Task.Run(() => File.ReadAllBytes(sourceFilePath), cancellationToken);
+                    // Download the file
+                    byte[] fileBytes = await DownloadFileFromServerAsync(originalFileName);
+                    if (fileBytes == null) 
+                        continue;
                     await File.WriteAllBytesAsync(destinationPath, fileBytes);
+
 
                     _logger.LogInformation($"{originalFileName} downloaded successfully!");
 
-                    string renamedFileName = await RenameFileAsync(destinationPath);
-                    string renamedFilePath = Path.Combine(_localFolder, renamedFileName);
+                    DataModel bookMetadata = await RenameFileAsync(destinationPath, bookNumber);
+
+                    string newFileName = $"{bookMetadata.Author} - {bookMetadata.Title} ({bookMetadata.Year}).zip";
+                    newFileName = newFileName.Replace(" ", "_"); // Replace spaces with underscore to avoid errors with hyperlinks
+                    string renamedFilePath = Path.Combine(_localFolder, newFileName);
                     
-                    File.Move(destinationPath, renamedFilePath);
+                    File.Move(destinationPath, renamedFilePath); // Rewrite the file with the new name
                     
-                    // Actual upload to Blob Storage instead of local renaming folder
-                    string blobUrl = await _blobStorageService.UploadFileAsync(renamedFilePath);  // This will upload the file to Blob Storage
+                    // Upload to Blob Storage
+                    string blobUrl = await _blobStorageService.UploadFileAsync(renamedFilePath);
+
+                    // Add the URL to the metadata
+                    bookMetadata.Url = blobUrl;
+
+                    // Collect data to save later
+                    booksData.Add(bookMetadata);
 
                     File.Delete(renamedFilePath);
 
-                    _logger.LogInformation($"Renamed {originalFileName} -> {renamedFileName} and uploaded to Blob Storage. URL: {blobUrl}");
+                    _logger.LogInformation($"Renamed {originalFileName} -> {newFileName} and uploaded to Blob Storage. URL: {blobUrl}");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError($"Error processing {originalFileName}: {ex.Message}");
                 }
             }
+
+            string jsonOutput = JsonConvert.SerializeObject(booksData, Formatting.Indented);
+            File.WriteAllText("books_metadata.json", jsonOutput);
+            _logger.LogInformation("Saved metadata to books_metadata.json");
+
         }
 
-        private async Task<string> RenameFileAsync(string zipFilePath)
+        private async Task<DataModel> RenameFileAsync(string zipFilePath, int bookSequenceNumber)
         {
             _logger.LogInformation($"Extracting text for renaming from ZIP: {zipFilePath}");
 
@@ -156,7 +133,14 @@ namespace AspNetCoreWebApp.Services
                 if (string.IsNullOrEmpty(extractedText))
                 {
                     _logger.LogError($"No valid .txt file found in {zipFilePath}. Keeping original name.");
-                    return Path.GetFileName(zipFilePath); // Keep original name on failure
+                    //return Path.GetFileName(zipFilePath); // Keep original name on failure
+                    return new DataModel
+                    {
+                        Author = "Unknown",
+                        Title = "Unknown",
+                        Year = 0,
+                        BookSequenceNumber = bookSequenceNumber
+                    };
                 }
 
                 // Send the extracted text to the Python API for renaming
@@ -164,18 +148,36 @@ namespace AspNetCoreWebApp.Services
                 if (renameInfo == null)
                 {
                     _logger.LogWarning($"Renaming service failed, keeping original filename.");
-                    return Path.GetFileName(zipFilePath);
+                    return new DataModel
+                    {
+                        Author = "Unknown",
+                        Title = "Unknown",
+                        Year = 0,
+                        BookSequenceNumber = bookSequenceNumber
+                    };
                 }
 
-                string newFileName = $"{renameInfo.Author} - {renameInfo.Title} ({renameInfo.Year}).zip";
-                _logger.LogInformation($"Renamed to: {newFileName}");
 
-                return newFileName;
+                // Create a structured model
+                return new DataModel
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Author = renameInfo.Author,
+                    Title = renameInfo.Title,
+                    Year = renameInfo.Year,
+                    BookSequenceNumber = bookSequenceNumber
+                };
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error processing {zipFilePath}: {ex.Message}");
-                return Path.GetFileName(zipFilePath); // Keep original name on error
+                _logger.LogError($"Error extracting metadata from {zipFilePath}: {ex.Message}");
+                return new DataModel
+                {
+                    Author = "Unknown",
+                    Title = "Unknown",
+                    Year = 0,
+                    BookSequenceNumber = bookSequenceNumber
+                };
             }
         }
 

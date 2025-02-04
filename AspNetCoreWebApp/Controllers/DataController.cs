@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using AspNetCoreWebApp.Models;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -41,7 +42,7 @@ public class DataController : ControllerBase
 
     // PUT: api/data/{id}
     [HttpPut("{id}")]
-    public async Task<IActionResult> Update(int id, DataModel model)
+    public async Task<IActionResult> Update(string id, DataModel model)
     {
         if (id != model.Id) return BadRequest();
 
