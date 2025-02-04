@@ -8,17 +8,20 @@ internal class Program
         var builder = WebApplication.CreateBuilder(args);
 
         // Configure services
-        // builder.Services.AddDbContext<AppDbContext>(options =>
-        //     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-        //
+        builder.Services.AddDbContext<AppDbContext>(options =>
+        options.UseCosmos(
+            builder.Configuration["CosmosDB:EndPoint"],
+            builder.Configuration["CosmosDB:PrimaryKey"],
+            builder.Configuration["CosmosDB:Database"]
+        ));
         builder.Services.AddSingleton<BlobStorageService>();
-        // builder.Services.AddHttpClient<PythonApiService>();
-        //
+
+
         //// Add controllers
         builder.Services.AddControllers();
+        builder.Services.AddEndpointsApiExplorer();
+        builder.Services.AddSwaggerGen();
 
-        // Register HttpClient for BookDownloadService
-        //builder.Services.AddHttpClient<BookDownloadService>();
         builder.Services.AddHttpClient(); // Register IHttpClientFactory
         builder.Services.AddSingleton<BookDownloadService>();
         builder.Services.AddHostedService<BookDownloadBackgroundService>();
